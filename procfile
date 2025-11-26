@@ -1,1 +1,1 @@
-web: gunicorn payroll_dash.py:server
+web: gunicorn payroll_dash.py:server = app.server

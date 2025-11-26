@@ -30,6 +30,7 @@ borough_options = [{'label': b, 'value': b} for b in sorted(df['work_location_bo
 borough_options.insert(0, {'label': 'All Boroughs', 'value': 'All'}) # Add an option to view all
 
 app = dash.Dash(__name__)
+server = app.server
 
 app.layout = html.Div([
     html.H1("NYC ACS Payroll Dashboard"),

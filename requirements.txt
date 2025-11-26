@@ -1,4 +1,4 @@
-﻿#This file lists all the Python libraries required to run payroll_dash.py
+﻿#This file lists all the Python libraries required to run app.py
 #gunicorn is required for deployment to a web server (like Heroku or Render)
 dash
 pandas

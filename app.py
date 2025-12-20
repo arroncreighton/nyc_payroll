@@ -3,210 +3,145 @@ import pandas as pd
 import plotly.express as px
 import dash
 from dash import html, dcc, Input, Output
-import numpy as np # Needed for histogram binning/range
 
-# --- Data Loading ---
-api_url = "https://data.cityofnewyork.us/resource/k397-673e.json"
+# --- 1. Data Loading (Fix #1: Filtering by Fiscal Year) ---
+# We filter for 2024 to ensure we get as many agencies as possible within the 50k limit.
+api_url = "https://data.cityofnewyork.us/resource/k397-673e.json?fiscal_year=2025&$limit=70000"
+
+print("Fetching 2024 Payroll Data...")
 response = requests.get(api_url)
 data = [] 
 
 if response.status_code == 200:
-    print("Request successful!")
     data = response.json()
-    print(f"Loaded {len(data)} records.")
+    print(f"Success! Loaded {len(data)} records for FY2024.")
 else:
-    print(f"Request failed with status code: {response.status_code}")
+    print(f"Request failed: {response.status_code}")
     
 df = pd.DataFrame() 
 
 if data:
     df = pd.DataFrame(data)
 
-    # Data Preparation: Using Correct API Column Names
-    df['base_salary'] = pd.to_numeric(df['base_salary'], errors='coerce')
-    df.dropna(subset=['base_salary', 'work_location_borough', 'title_description'], inplace=True)
+    # --- 2. Data Preparation ---
+    # Convert 'regular_gross_paid' to numeric
+    df['regular_gross_paid'] = pd.to_numeric(df['regular_gross_paid'], errors='coerce')
     
-    # Get the unique borough names for the dropdown
+    # Drop rows missing essential data for our filters and charts
+    df.dropna(subset=['regular_gross_paid', 'work_location_borough', 'title_description', 'agency_name'], inplace=True)
+    
+    # Standardize names for consistency in the dropdowns
+    df['work_location_borough'] = df['work_location_borough'].str.upper().str.strip()
+    df['agency_name'] = df['agency_name'].str.upper().str.strip()
+    
+    # Options for Borough Filter
     borough_options = [{'label': b, 'value': b} for b in sorted(df['work_location_borough'].unique())]
     borough_options.insert(0, {'label': 'All Boroughs', 'value': 'All'})
 
+    # Options for Agency Filter (Should now show many more agencies)
+    agency_options = [{'label': a, 'value': a} for a in sorted(df['agency_name'].unique())]
+    agency_options.insert(0, {'label': 'All Agencies', 'value': 'All'})
+
     app = dash.Dash(__name__)
 
-    # --- 2. Define the Layout with All Metrics and Charts ---
+    # --- 3. Layout ---
     app.layout = html.Div([
-        html.H1("NYC ACS Payroll Dashboard"),
+        html.H1("NYC FY2025 Payroll Analytics", style={'textAlign': 'center', 'color': '#2c3e50', 'marginTop': '20px'}),
+        html.P("Analyzing Gross Pay across City Agencies", style={'textAlign': 'center', 'color': '#7f8c8d'}),
         
-        # Dropdown for Borough Selection
+        # Filter Section
         html.Div([
-            html.Label("Select Borough:", style={'fontWeight': 'bold'}),
-            dcc.Dropdown(
-                id='borough-dropdown',
-                options=borough_options,
-                value='All',
-                clearable=False
-            ),
-        ], style={'width': '50%', 'padding': '10px'}),
-        
-        html.Hr(),
-
-        # Container for Metrics (5 Boxes)
-        html.Div(id='metrics-container', children=[
-            # 1. Total Employee Count (Headcount)
-            html.Div(
-                id='total-headcount-metric', 
-                style={'border': '1px solid #ccc', 'padding': '10px', 'margin': '5px', 'flex': 1}
-            ),
-            # 2. Average Salary
-            html.Div(
-                id='avg-salary-metric', 
-                style={'border': '1px solid #ccc', 'padding': '10px', 'margin': '5px', 'flex': 1}
-            ),
-            # 3. Median Salary
-            html.Div(
-                id='median-salary-metric', 
-                style={'border': '1px solid #ccc', 'padding': '10px', 'margin': '5px', 'flex': 1}
-            ),
-            # 4. Minimum Salary
-            html.Div(
-                id='min-salary-metric',
-                style={'border': '1px solid #ccc', 'padding': '10px', 'margin': '5px', 'flex': 1}
-            ),
-            # 5. Maximum Salary
-            html.Div(
-                id='max-salary-metric',
-                style={'border': '1px solid #ccc', 'padding': '10px', 'margin': '5px', 'flex': 1}
-            ),
-        ], style={'display': 'flex', 'flexDirection': 'row', 'marginBottom': '20px'}),
-        
-        html.Hr(),
-
-        # Container for Charts (2 Charts arranged side-by-side)
-        html.Div(children=[
-            # Chart 1: Average Salary per Title
-            html.Div(dcc.Graph(id='average-salary-chart'), style={'flex': 1, 'padding': '10px'}),
+            html.Div([
+                html.Label("Borough Selection:", style={'fontWeight': 'bold'}),
+                dcc.Dropdown(id='borough-dropdown', options=borough_options, value='All', clearable=False),
+            ], style={'width': '45%', 'display': 'inline-block', 'padding': '10px'}),
             
-            # Chart 2: Top Titles by Headcount (Headcount Distribution)
-            html.Div(dcc.Graph(id='headcount-distribution-chart'), style={'flex': 1, 'padding': '10px'}),
-        ], style={'display': 'flex', 'flexDirection': 'row', 'marginBottom': '20px'}),
+            html.Div([
+                html.Label("Agency Selection:", style={'fontWeight': 'bold'}),
+                dcc.Dropdown(id='agency-dropdown', options=agency_options, value='All', clearable=False),
+            ], style={'width': '45%', 'display': 'inline-block', 'padding': '10px'}),
+        ], style={'backgroundColor': '#f8f9fa', 'padding': '20px', 'borderRadius': '10px', 'margin': '20px', 'boxShadow': '0px 2px 4px rgba(0,0,0,0.1)'}),
+        
+        # Metric Summary
+        html.Div(id='metrics-container', style={'display': 'flex', 'justifyContent': 'space-around', 'margin': '20px'}),
+        
+        # Charts
+        dcc.Loading(
+            type="circle",
+            children=[
+                html.Div([
+                    html.Div(dcc.Graph(id='avg-gross-chart'), style={'width': '50%', 'display': 'inline-block'}),
+                    html.Div(dcc.Graph(id='headcount-chart'), style={'width': '50%', 'display': 'inline-block'}),
+                ]),
+                html.Div([
+                    dcc.Graph(id='dist-chart')
+                ], style={'padding': '10px'})
+            ]
+        )
+    ], style={'fontFamily': 'Arial, sans-serif', 'padding': '10px'})
 
-        # Chart 3: Salary Distribution (Histogram)
-        html.Div(dcc.Graph(id='salary-distribution-chart')),
-    ])
-
-    # --- 3. The Central Callback Function ---
+    # --- 4. Callback ---
     @app.callback(
-        # 3 Chart Outputs
-        Output('average-salary-chart', 'figure'),
-        Output('headcount-distribution-chart', 'figure'),
-        Output('salary-distribution-chart', 'figure'),
-        # 5 Metric Outputs
-        Output('total-headcount-metric', 'children'),
-        Output('avg-salary-metric', 'children'),
-        Output('median-salary-metric', 'children'),
-        Output('min-salary-metric', 'children'),
-        Output('max-salary-metric', 'children'),
-        [Input('borough-dropdown', 'value')]
+        [Output('avg-gross-chart', 'figure'),
+         Output('headcount-chart', 'figure'),
+         Output('dist-chart', 'figure'),
+         Output('metrics-container', 'children')],
+        [Input('borough-dropdown', 'value'),
+         Input('agency-dropdown', 'value')]
     )
-    def update_dashboard(selected_borough):
+    def update_dashboard(borough, agency):
+        # Filtering logic
+        dff = df.copy()
+        if borough != 'All':
+            dff = dff[dff['work_location_borough'] == borough]
+        if agency != 'All':
+            dff = dff[dff['agency_name'] == agency]
+
+        if dff.empty:
+            return {}, {}, {}, [html.H3("No results found for this selection.", style={'color': '#e74c3c'})]
+
+        # Calculate Summary Metrics
+        summary_stats = [
+            ('Employees', f"{len(dff):,}"),
+            ('Avg Gross', f"${dff['regular_gross_paid'].mean():,.0f}"),
+            ('Median Gross', f"${dff['regular_gross_paid'].median():,.0f}"),
+            ('Max Gross', f"${dff['regular_gross_paid'].max():,.0f}")
+        ]
         
-        # --- Step 1: Filter Data ---
-        if selected_borough == 'All':
-            filtered_df = df
-            borough_label = 'All Boroughs'
-        else:
-            filtered_df = df[df['work_location_borough'] == selected_borough]
-            borough_label = selected_borough
-
-        # --- Step 2: Calculate Metrics ---
-        headcount = len(filtered_df)
-        avg_salary = filtered_df['base_salary'].mean()
-        median_salary = filtered_df['base_salary'].median()
-        min_salary = filtered_df['base_salary'].min()
-        max_salary = filtered_df['base_salary'].max()
-
-        # Format metrics for display
-        headcount_text = [
-            html.H3("Total Employees", style={'textAlign': 'center'}),
-            html.P(f"{headcount:,.0f}", style={'fontSize': '24px', 'fontWeight': 'bold', 'textAlign': 'center'})
-        ]
-        avg_text = [
-            html.H3("Average Salary", style={'textAlign': 'center'}),
-            html.P(f"${avg_salary:,.2f}", style={'fontSize': '24px', 'fontWeight': 'bold', 'textAlign': 'center'})
-        ]
-        median_text = [
-            html.H3("Median Salary", style={'textAlign': 'center'}),
-            html.P(f"${median_salary:,.2f}", style={'fontSize': '24px', 'fontWeight': 'bold', 'textAlign': 'center'})
-        ]
-        min_text = [
-            html.H3("Minimum Salary", style={'textAlign': 'center'}),
-            html.P(f"${min_salary:,.2f}", style={'fontSize': '24px', 'fontWeight': 'bold', 'textAlign': 'center'})
-        ]
-        max_text = [
-            html.H3("Maximum Salary", style={'textAlign': 'center'}),
-            html.P(f"${max_salary:,.2f}", style={'fontSize': '24px', 'fontWeight': 'bold', 'textAlign': 'center'})
+        metrics_html = [
+            html.Div([
+                html.Span(label, style={'color': '#95a5a6', 'fontSize': '14px', 'textTransform': 'uppercase'}),
+                html.H2(val, style={'margin': '5px 0 0 0', 'color': '#2980b9'})
+            ], style={'textAlign': 'center', 'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '8px', 'boxShadow': '2px 2px 10px #eee', 'minWidth': '200px'})
+            for label, val in summary_stats
         ]
 
-        # --- Step 3: Create Charts ---
+        # Figure 1: Average Gross Pay by Title
+        top_avg = dff.groupby('title_description')['regular_gross_paid'].mean().nlargest(10).reset_index()
+        fig_avg = px.bar(top_avg, x='regular_gross_paid', y='title_description', orientation='h',
+                         title="Highest Average Gross Pay by Title",
+                         labels={'regular_gross_paid': 'Avg Gross Pay ($)', 'title_description': ''},
+                         template='plotly_white', color_discrete_sequence=['#3498db'])
+        fig_avg.update_layout(yaxis={'categoryorder':'total ascending'})
 
-        # CHART 1: Average Salary per Title (Your original chart)
-        avg_salary_df = filtered_df.groupby('title_description')['base_salary'].mean().reset_index(name='Average Salary')
-        avg_salary_df = avg_salary_df.sort_values(by='Average Salary', ascending=False).head(10)
-        
-        fig_avg_salary = px.bar(
-            avg_salary_df, 
-            x='Average Salary', y='title_description', 
-            orientation='h',
-            title=f'Top 10 Average Salaries per Job Title in {borough_label}',
-            labels={'Average Salary': 'Average Annual Salary', 'title_description': 'Job Title'}
-        )
-        fig_avg_salary.update_layout(yaxis={'categoryorder':'total ascending'})
+        # Figure 2: Headcount by Title
+        top_count = dff.groupby('title_description').size().nlargest(10).reset_index(name='count')
+        fig_count = px.bar(top_count, x='count', y='title_description', orientation='h',
+                           title="Highest Headcount by Title",
+                           labels={'count': 'Number of Employees', 'title_description': ''},
+                           template='plotly_white', color_discrete_sequence=['#2ecc71'])
+        fig_count.update_layout(yaxis={'categoryorder':'total ascending'})
 
-        # CHART 2: Headcount Distribution (Top 10 Titles by Employee Count)
-        headcount_df = filtered_df.groupby('title_description').size().reset_index(name='Employee Count')
-        headcount_df = headcount_df.sort_values(by='Employee Count', ascending=False).head(10)
+        # Figure 3: Gross Pay Distribution
+        fig_dist = px.histogram(dff, x='regular_gross_paid', nbins=50,
+                                title="Gross Pay Distribution",
+                                labels={'regular_gross_paid': 'Gross Pay ($)'},
+                                template='plotly_white', color_discrete_sequence=['#9b59b6'])
+        fig_dist.update_layout(bargap=0.1)
 
-        fig_headcount = px.bar(
-            headcount_df, 
-            x='Employee Count', y='title_description', 
-            orientation='h',
-            title=f'Top 10 Titles by Employee Count in {borough_label}',
-            labels={'Employee Count': 'Total Employees', 'title_description': 'Job Title'},
-            color_discrete_sequence=px.colors.qualitative.Safe # Use a different color set
-        )
-        fig_headcount.update_layout(yaxis={'categoryorder':'total ascending'})
+        return fig_avg, fig_count, fig_dist, metrics_html
 
-        # CHART 3: Salary Distribution (Histogram)
-        # Use bins based on the full data range for consistent comparison across boroughs
-        min_full_salary = df['base_salary'].min()
-        max_full_salary = df['base_salary'].max()
-        salary_range = max_full_salary - min_full_salary
-        # Set bin size to 10k for reasonable granularity
-        n_bins = int(salary_range / 10000) 
-        
-        fig_hist = px.histogram(
-            filtered_df, 
-            x='base_salary',
-            nbins=n_bins,
-            range_x=[min_full_salary, max_full_salary], # Keep the x-axis consistent
-            title=f'Salary Distribution in {borough_label}',
-            labels={'base_salary': 'Base Salary', 'count': 'Number of Employees'}
-        )
-        fig_hist.update_traces(marker_line_width=1, marker_line_color='white')
-        
-        # --- Step 4: Return all 8 outputs (3 figures, 5 metric texts) ---
-        return (
-            fig_avg_salary, 
-            fig_headcount, 
-            fig_hist,
-            headcount_text, 
-            avg_text, 
-            median_text, 
-            min_text, 
-            max_text
-        )
-
-    # Run the app
     if __name__ == '__main__':
         app.run(debug=True)
 else:
-    print("Cannot run the Dash application because data could not be loaded from the API.")
+    print("Could not load data. Check the API URL or your connection.")

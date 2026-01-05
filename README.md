@@ -9,7 +9,7 @@ Key Salary Metrics: Displays calculated metrics for the selected borough:
 
 Total Employee Headcount
 
-Average, Minimum, and Maximum Base Salary
+Average, Minimum, and Maximum Gross Salary
 
 Top Titles by Average Salary: Horizontal bar chart showing the top 10 job titles ranked by average salary.
 
